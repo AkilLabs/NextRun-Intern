@@ -156,30 +156,109 @@ class QAViews:
         st.title("Code Review")
         
         # Code input
-        st.file_uploader("Upload Code for Review")
+        uploaded_file = st.file_uploader("Upload Code for Review", 
+                                        type=["py", "js", "java", "cpp", "cs", "html", "css", "ts", "jsx", "tsx"],
+                                        key="review_file")
         
         # Analysis options
-        st.multiselect(
+        options = st.multiselect(
             "Analysis Options",
-            ["Test Coverage", "Security", "Performance", "Best Practices"]
+            ["Test Coverage", "Security", "Performance", "Best Practices"],
+            default=["Test Coverage", "Security", "Performance", "Best Practices"]
         )
         
-        st.button("Analyze Code")
+        if uploaded_file and st.button("Review Code"):
+            if not options:
+                st.error("Please select at least one analysis option")
+            else:
+                with st.spinner("Analyzing code..."):
+                    # Read file content
+                    content = uploaded_file.getvalue().decode("utf-8")
+                    
+                    # Call the QA agent
+                    qa_agent = st.session_state.qa_agent
+                    import asyncio
+                    try:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        
+                        # Create input data for review_code
+                        review_data = {
+                            'content': content,
+                            'filename': uploaded_file.name,
+                            'options': options
+                        }
+                        
+                        result = loop.run_until_complete(qa_agent.review_code(review_data))
+                        loop.close()
+                        
+                        if result.get("status") == "success":
+                            st.success(f"Successfully reviewed {result['data']['filename']}")
+                            st.markdown("### Code Review Results")
+                            st.markdown(result['data']['review'])
+                        else:
+                            st.error(result.get("message", "An unknown error occurred"))
+                    except Exception as e:
+                        st.error(f"Error reviewing code: {str(e)}")
+                        
+        # Results section when no file is uploaded
+        if not uploaded_file:
+            st.info("Upload a code file to get review feedback")
 
     @staticmethod
     def render_impact_analysis():
         st.title("Impact Analysis")
         
         # Code changes input
-        st.text_area("Enter Code Changes", height=150)
+        code_changes = st.text_area("Enter Code Changes", height=150, key="code_changes")
         
         # Analysis scope
-        st.multiselect(
+        analysis_scope = st.multiselect(
             "Analysis Scope",
-            ["Unit Tests", "Integration Tests", "UI Tests", "Data Validation"]
+            ["Unit Tests", "Integration Tests", "UI Tests", "Data Validation"],
+            default=["Unit Tests", "Integration Tests"]
         )
         
-        st.button("Analyze Impact")
+        if st.button("Analyze Impact"):
+            if not code_changes:
+                st.error("Please enter code changes to analyze")
+            elif not analysis_scope:
+                st.error("Please select at least one analysis scope")
+            else:
+                with st.spinner("Analyzing impact..."):
+                    # Call the QA agent
+                    qa_agent = st.session_state.qa_agent
+                    import asyncio
+                    try:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        
+                        # Create input data for analyze_impact
+                        impact_data = {
+                            'content': code_changes,
+                            'scope': analysis_scope
+                        }
+                        
+                        result = loop.run_until_complete(qa_agent.analyze_impact(impact_data))
+                        loop.close()
+                        
+                        if result.get("status") == "success":
+                            st.success("Impact analysis completed")
+                            st.markdown("### Impact Analysis Results")
+                            st.markdown(result['data']['analysis'])
+                            
+                            # Display affected areas if any
+                            if result['data'].get('affected_areas'):
+                                st.subheader("Affected Areas")
+                                st.write(result['data']['affected_areas'])
+                        else:
+                            st.error(result.get("message", "An unknown error occurred"))
+                    except Exception as e:
+                        st.error(f"Error analyzing impact: {str(e)}")
+                
+        # Show info message when no code changes are entered
+        if not code_changes:
+            st.info("Enter code changes to analyze their impact")
 
     @staticmethod
     def render_data_validation():
@@ -189,10 +268,53 @@ class QAViews:
         
         with col1:
             st.subheader("Expected Data")
-            st.file_uploader("Upload Expected Data")
+            expected_file = st.file_uploader("Upload Expected Data", key="expected_data")
             
         with col2:
             st.subheader("Actual Data")
-            st.file_uploader("Upload Actual Data")
-            
-        st.button("Compare Data")
+            actual_file = st.file_uploader("Upload Actual Data", key="actual_data")
+        
+        if expected_file and actual_file and st.button("Compare Data"):
+            with st.spinner("Comparing data..."):
+                # Read file contents
+                expected_content = expected_file.getvalue().decode("utf-8")
+                actual_content = actual_file.getvalue().decode("utf-8")
+                
+                # Call the QA agent
+                qa_agent = st.session_state.qa_agent
+                import asyncio
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    
+                    # Create input data for validate_data
+                    expected_data = {
+                        'content': expected_content,
+                        'filename': expected_file.name
+                    }
+                    
+                    actual_data = {
+                        'content': actual_content,
+                        'filename': actual_file.name
+                    }
+                    
+                    result = loop.run_until_complete(qa_agent.validate_data(expected_data, actual_data))
+                    loop.close()
+                    
+                    if result.get("status") == "success":
+                        st.success("Data validation completed")
+                        st.markdown("### Validation Results")
+                        st.markdown(result['data']['comparison'])
+                        
+                        # Display discrepancies if any
+                        if result['data'].get('discrepancies'):
+                            st.subheader("Discrepancies")
+                            st.dataframe(result['data']['discrepancies'])
+                    else:
+                        st.error(result.get("message", "An unknown error occurred"))
+                except Exception as e:
+                    st.error(f"Error validating data: {str(e)}")
+        
+        # Show info message when files aren't uploaded
+        if not (expected_file and actual_file):
+            st.info("Upload both expected and actual data files to compare")
