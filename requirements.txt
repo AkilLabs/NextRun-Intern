@@ -1,5 +1,10 @@
-browser-use==0.1.37
-pyperclip==1.9.0
-gradio==5.10.0
-json-repair
-langchain-mistralai==0.2.4
+streamlit>=1.32.0
+pytest>=8.0.0
+requests>=2.31.0
+langchain>=0.1.9
+langchain-core>=0.1.26
+langchain-mistralai>=0.2.4
+python-dotenv>=1.0.0
+jira>=3.5.1
+pandas>=2.2.0
+numpy>=1.26.4
