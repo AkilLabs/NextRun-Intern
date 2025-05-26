@@ -25,7 +25,7 @@ class QAViews:
 
         if input_method == "Jira Story":
             story = st.text_area("Enter Jira Story", height=150, key="jira_story")
-            if st.button("Generate Test Cases from Story"):
+            if st.button("Generate Test Cases from Story", key="generate_story_button"):
                 if not story:
                     st.error("Please enter a Jira story")
                 else:
@@ -56,7 +56,7 @@ class QAViews:
             
             if uploaded_files:
                 st.write(f"Uploaded {len(uploaded_files)} files")
-                if st.button("Generate Test Cases from Code"):
+                if st.button("Generate Test Cases from Code", key="generate_code_button"):
                     with st.spinner("Analyzing code and generating test cases..."):
                         # Create a temporary directory for the files
                         import tempfile
@@ -109,7 +109,7 @@ class QAViews:
 
         else:  # Manual Entry
             description = st.text_area("Enter Test Description", height=150, key="test_desc")
-            if st.button("Generate Test Cases from Description"):
+            if st.button("Generate Test Cases from Description", key="generate_desc_button"):
                 if not description:
                     st.error("Please enter a test description")
                 else:
@@ -140,16 +140,141 @@ class QAViews:
         st.title("Test Execution")
         
         # Test suite selection
-        st.selectbox("Select Test Suite", ["Regression", "Integration", "UAT"])
+        test_suite = st.selectbox("Select Test Suite", ["Regression", "Integration", "UAT", "Smoke", "Performance"])
         
         # Environment selection
-        st.selectbox("Environment", ["Dev", "QA", "Staging"])
+        environment = st.selectbox("Environment", ["Dev", "QA", "Staging", "Production"])
         
-        st.button("Run Tests")
+        # Input method for test details
+        input_method = st.radio(
+            "Test Input Method",
+            ["Generated Test Cases", "Test Script Files", "Manual Test Steps"]
+        )
+        
+        test_details = ""
+        test_files = []
+        
+        if input_method == "Generated Test Cases":
+            # Allow user to paste previously generated test cases
+            test_details = st.text_area("Paste Generated Test Cases", height=150)
+        elif input_method == "Test Script Files":
+            # Allow users to upload test script files
+            uploaded_files = st.file_uploader(
+                "Upload Test Script Files", 
+                accept_multiple_files=True,
+                type=["py", "js", "feature", "robot", "java", "spec.js", "test.js", "spec.ts", "test.ts"]
+            )
+            
+            if uploaded_files:
+                test_files = [file.name for file in uploaded_files]
+                test_details = f"Execute the following test files: {', '.join(test_files)}"
+        else:  # Manual Test Steps
+            test_details = st.text_area("Enter Manual Test Steps", height=150)
+        
+        # Additional test parameters
+        with st.expander("Advanced Options"):
+            retry_failed = st.checkbox("Retry Failed Tests", value=False)
+            test_tags = st.text_input("Test Tags (comma-separated)")
+            parallel_execution = st.slider("Parallel Execution Threads", 1, 10, 1)
+            timeout = st.number_input("Test Timeout (seconds)", 30, 3600, 300)
+        
+        if st.button("Run Tests", key="execute_tests_button"):
+            if not test_details and not test_files:
+                st.error("Please provide test details or upload test files")
+            else:
+                with st.spinner("Executing tests..."):
+                    # Call the QA agent
+                    qa_agent = st.session_state.qa_agent
+                    import asyncio
+                    try:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        
+                        # Create input data for test execution
+                        test_data = {
+                            'content': test_details,
+                            'test_suite': test_suite,
+                            'environment': environment,
+                            'test_files': test_files,
+                            'options': {
+                                'retry_failed': retry_failed,
+                                'test_tags': test_tags,
+                                'parallel_execution': parallel_execution,
+                                'timeout': timeout
+                            }
+                        }
+                        
+                        result = loop.run_until_complete(qa_agent.execute_tests(test_data))
+                        loop.close()
+                        
+                        # Display results
+                        if result.get("status") == "success":
+                            # Test execution summary
+                            if 'execution_time' in result['data']:
+                                st.success(f"Completed test execution in {result['data']['execution_time']}")
+                            
+                            # Check if this is a live test with detailed results or just an execution plan
+                            if 'test_results' in result['data']:
+                                # Display summary metrics
+                                col1, col2, col3, col4 = st.columns(4)
+                                with col1:
+                                    st.metric("Total Tests", result['data']['total_tests'])
+                                with col2:
+                                    st.metric("Passed", result['data']['passed_steps'])
+                                with col3:
+                                    st.metric("Failed", result['data']['failed_steps'])
+                                with col4:
+                                    success_rate = int((result['data']['passed_steps'] / result['data']['total_tests']) * 100)
+                                    st.metric("Success Rate", f"{success_rate}%")
+                                
+                                # Display detailed test results
+                                st.subheader("Test Results")
+                                
+                                # Convert test results to a DataFrame for better display
+                                import pandas as pd
+                                test_results_df = pd.DataFrame(result['data']['test_results'])
+                                
+                                # Display the dataframe with custom formatting
+                                st.dataframe(test_results_df, use_container_width=True)
+                                
+                                # Show pass/fail summary with color coding
+                                for idx, test in enumerate(result['data']['test_results']):
+                                    status_color = "green" if test['status'] == "PASS" else "red"
+                                    st.markdown(f"<span style='color:{status_color}'>{test['description']}: {test['status']}</span>", unsafe_allow_html=True)
+                                
+                                # Display failed test details if any
+                                if result['data']['failed_steps'] > 0:
+                                    st.subheader("Failed Tests")
+                                    failed_tests = [t for t in result['data']['test_results'] if t['status'] == 'FAIL']
+                                    for test in failed_tests:
+                                        with st.expander(f"{test['description']} - FAILED"):
+                                            st.error(test.get('error', 'No error details available'))
+                                            st.text(f"Execution time: {test['execution_time']}")
+                            
+                            # Display execution plan
+                            if 'execution_plan' in result['data']:
+                                with st.expander("Test Execution Plan"):
+                                    st.markdown(result['data']['execution_plan'])
+                                    
+                                # If we only have execution plan but no real test results, show info message
+                                if 'test_results' not in result['data'] and 'recommendation' in result['data']:
+                                    st.info(result['data']['recommendation'])
+                        elif result.get("status") == "info":
+                            st.info(result.get("message", "For real-time testing, please provide a URL"))
+                            if 'data' in result and 'execution_plan' in result['data']:
+                                with st.expander("Test Execution Plan"):
+                                    st.markdown(result['data']['execution_plan'])
+                                
+                                if 'recommendation' in result['data']:
+                                    st.info(result['data']['recommendation'])
+                        else:
+                            st.error(result.get("message", "An unknown error occurred during test execution"))
+                    except Exception as e:
+                        st.error(f"Error executing tests: {str(e)}")
 
-        # Results section
-        st.subheader("Test Results")
-        st.empty()  # Placeholder for test results
+        # Display test execution tips
+        if not st.button("Run Tests", key="info_tests_button"):
+            st.info("Prepare your test details and click 'Run Tests' to start test execution")
 
     @staticmethod
     def render_code_review():
@@ -167,7 +292,7 @@ class QAViews:
             default=["Test Coverage", "Security", "Performance", "Best Practices"]
         )
         
-        if uploaded_file and st.button("Review Code"):
+        if uploaded_file and st.button("Review Code", key="review_code_button"):
             if not options:
                 st.error("Please select at least one analysis option")
             else:
@@ -219,7 +344,7 @@ class QAViews:
             default=["Unit Tests", "Integration Tests"]
         )
         
-        if st.button("Analyze Impact"):
+        if st.button("Analyze Impact", key="analyze_impact_button"):
             if not code_changes:
                 st.error("Please enter code changes to analyze")
             elif not analysis_scope:
@@ -274,7 +399,7 @@ class QAViews:
             st.subheader("Actual Data")
             actual_file = st.file_uploader("Upload Actual Data", key="actual_data")
         
-        if expected_file and actual_file and st.button("Compare Data"):
+        if expected_file and actual_file and st.button("Compare Data", key="compare_data_button"):
             with st.spinner("Comparing data..."):
                 # Read file contents
                 expected_content = expected_file.getvalue().decode("utf-8")
