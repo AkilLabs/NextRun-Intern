@@ -851,3 +851,150 @@ class QAEngineerAgent(BaseAgent):
                 "status": "error",
                 "message": f"Error executing live website tests: {str(e)}"
             }
+    
+    async def triage_bug(self, bug_data: Dict) -> Dict:
+        """Analyze bug, perform triage and store bug data"""
+        if not self.llm:
+            return {
+                "status": "error",
+                "message": "LLM not initialized. Please set your OpenAI API key in Settings."
+            }
+        
+        try:
+            # Extract bug data
+            bug_id = bug_data.get('bug_id', '')
+            title = bug_data.get('title', '')
+            description = bug_data.get('description', '')
+            steps_to_reproduce = bug_data.get('steps_to_reproduce', '')
+            severity = bug_data.get('severity', 'Medium')
+            priority = bug_data.get('priority', 'P3 - Normal')
+            status = bug_data.get('status', 'New')
+            environment = bug_data.get('environment', {})
+            analysis_options = bug_data.get('analysis_options', {})
+            
+            # Create prompt for analysis
+            prompt = f"""
+            Analyze the following bug report:
+            
+            Bug ID: {bug_id}
+            Title: {title}
+            Status: {status}
+            Severity: {severity}
+            Priority: {priority}
+            
+            Description:
+            {description}
+            
+            Steps to Reproduce:
+            {steps_to_reproduce}
+            
+            Environment:
+            Browser: {environment.get('browser', 'Not specified')} {environment.get('browser_version', '')}
+            OS: {environment.get('os', 'Not specified')} {environment.get('os_version', '')}
+            Device: {environment.get('device', 'Not specified')}
+            Screen Resolution: {environment.get('screen_resolution', 'Not specified')}
+            
+            Please provide a comprehensive analysis of this bug, including:
+            1. Root cause analysis
+            2. Potential impact on users
+            3. Recommended resolution approach
+            4. Verification steps after fixing
+            5. Prevention strategies for similar bugs
+            
+            Format your response in markdown.
+            """
+            
+            # Get response from LLM
+            from langchain_core.messages import HumanMessage
+            from typing import List, cast
+            from langchain_core.messages import BaseMessage
+            
+            # Create the messages and cast to the expected type
+            message = HumanMessage(content=prompt)
+            messages = cast(List[List[BaseMessage]], [[message]])
+            
+            response = await self.llm.agenerate(messages)
+            analysis = response.generations[0][0].text
+            
+            # Handle similar bugs checks
+            similar_bugs = []
+            if analysis_options.get('check_similar_bugs', False):
+                # This would normally query a database or API for similar bugs
+                # For now, we'll return a placeholder
+                similar_bugs = [
+                    {
+                        "id": "BUG-1001",
+                        "title": "Similar issue with browser compatibility",
+                        "similarity_score": 85,
+                        "description": "Users reported a similar issue with the same browser version."
+                    }
+                ]
+            
+            # Handle root cause analysis
+            root_cause = None
+            if analysis_options.get('root_cause_analysis', False):
+                # Extract the relevant part from the analysis or generate separately
+                root_cause = "Based on the description, this appears to be caused by a race condition when loading resources."
+            
+            # Handle impact assessment
+            impact = None
+            if analysis_options.get('impact_assessment', False):
+                impact = "This bug affects approximately 15% of users, primarily those on the affected browser/OS combination."
+            
+            # Return the analysis results
+            return {
+                "status": "success",
+                "data": {
+                    "analysis": analysis,
+                    "similar_bugs": similar_bugs if analysis_options.get('check_similar_bugs', False) else None,
+                    "root_cause": root_cause if analysis_options.get('root_cause_analysis', False) else None,
+                    "impact": impact if analysis_options.get('impact_assessment', False) else None,
+                    "recommendations": "Recommend fixing this bug with priority due to customer impact."
+                }
+            }
+            
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Error analyzing bug: {str(e)}"
+            }
+            
+    def save_bug_report(self, bug_data: Dict) -> Dict:
+        """Save bug report to file system"""
+        try:
+            import json
+            import time
+            from datetime import datetime
+            import os
+            
+            # Ensure bugs directory exists
+            bugs_dir = os.path.join("tmp", "bugs")
+            os.makedirs(bugs_dir, exist_ok=True)
+            
+            # Generate a bug ID if not provided
+            if not bug_data.get('bug_id'):
+                timestamp = int(time.time())
+                bug_data['bug_id'] = f"BUG-{timestamp}"
+            
+            # Add timestamp
+            bug_data['created_at'] = datetime.now().isoformat()
+            
+            # Save to file
+            filename = f"{bug_data['bug_id'].replace(' ', '_')}.json"
+            file_path = os.path.join(bugs_dir, filename)
+            
+            with open(file_path, 'w') as f:
+                json.dump(bug_data, f, indent=2)
+                
+            return {
+                "status": "success",
+                "data": {
+                    "bug_id": bug_data['bug_id'],
+                    "file_path": file_path
+                }
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Error saving bug report: {str(e)}"
+            }

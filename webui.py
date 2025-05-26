@@ -41,6 +41,8 @@ def main():
         QAViews.render_test_execution()
     elif menu == "Code Review":
         QAViews.render_code_review()
+    elif menu == "Bug Triage":
+        QAViews.render_bug_triage()
     elif menu == "Impact Analysis":
         QAViews.render_impact_analysis()
     elif menu == "Data Validation":
